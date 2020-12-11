@@ -3,7 +3,7 @@ name: Deploy to GCP on tag push
 on:
   push:
     tags:    
-      - 'dev-deploy.*'
+      - 'dev-deploy*'
 env:
   GOOGLE_PROJECT_ID_DEV: ${{ secrets.GKE_PROJECT }}
   GOOGLE_PROJECT_ID_TEST: ${{ secrets.GKE_TEST_PROJECT }}

@@ -2,10 +2,8 @@ name: Deploy to GCP on tag push
 
 on:
   push:
-    tags:
-      - dev-deploy
-      - test-deploy
-      - prod-deploy
+    branches:    
+      - 'develop'
 env:
   GOOGLE_PROJECT_ID_DEV: ${{ secrets.GKE_PROJECT }}
   GOOGLE_PROJECT_ID_TEST: ${{ secrets.GKE_TEST_PROJECT }}

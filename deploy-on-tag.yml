@@ -1,0 +1,84 @@
+name: Deploy to GCP on tag push
+
+on:
+  push:
+    tags:
+      - dev-deploy
+      - test-deploy
+      - prod-deploy
+env:
+  GOOGLE_PROJECT_ID_DEV: ${{ secrets.GKE_PROJECT }}
+  GOOGLE_PROJECT_ID_TEST: ${{ secrets.GKE_TEST_PROJECT }}
+  GOOGLE_PROJECT_ID_PROD: ${{ secrets.GKE_PROD_PROJECT }}
+  GCLOUD_SERVICE_KEY_DEV: ${{ secrets.GKE_SA_KEY }}
+  GCLOUD_SERVICE_KEY_TEST: ${{ secrets.GKE_SA_KEY_TEST }}
+  GCLOUD_SERVICE_KEY_PROD: ${{ secrets.GKE_SA_KEY_PROD }}
+  GKE_CLUSTER: aaap-platform-cluster
+  GKE_ZONE: europe-west6-a
+  IMAGE: people-management-service
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      # Determine the environment name
+      - name: Determine the environment name
+        run: |-
+          GITHUB_ACTIONS_TAG=${GITHUB_REF:10}
+          ENVIRONMENT_LOWERCASE=$(echo $GITHUB_ACTIONS_TAG | sed s/-deploy//g)
+          ENVIRONMENT=$(echo $ENVIRONMENT_LOWERCASE | tr a-z A-Z)
+          echo "ENVIRONMENT is $ENVIRONMENT"
+          echo "ENVIRONMENT_LOWERCASE=${ENVIRONMENT_LOWERCASE}" >> $GITHUB_ENV
+          echo "ENVIRONMENT=${ENVIRONMENT}" >> $GITHUB_ENV
+          echo "GITHUB_ACTIONS_TAG=${GITHUB_ACTIONS_TAG}" >> $GITHUB_ENV
+
+      - name: Determine the project and service key
+        run: |-
+          GOOGLE_PROJECT_ID___VAR_NAME=GOOGLE_PROJECT_ID_${ENVIRONMENT}
+          GOOGLE_PROJECT_ID=${!GOOGLE_PROJECT_ID___VAR_NAME}
+          echo "GOOGLE_PROJECT_ID=${GOOGLE_PROJECT_ID}" >> $GITHUB_ENV
+
+          GCLOUD_SERVICE_KEY___VAR_NAME=GCLOUD_SERVICE_KEY_${ENVIRONMENT}
+          GCLOUD_SERVICE_KEY=${!GCLOUD_SERVICE_KEY___VAR_NAME}
+          if [[ -z "$GCLOUD_SERVICE_KEY" ]]; then
+            echo "Couldn't load GCLOUD_SERVICE_KEY (expanding variable ${GCLOUD_SERVICE_KEY___VARIABLE_NAME})"
+            exit 1
+          fi
+          echo "GCLOUD_SERVICE_KEY=${GCLOUD_SERVICE_KEY}" >> $GITHUB_ENV
+      # Setup gcloud CLI
+      - uses: google-github-actions/setup-gcloud@master
+        with:
+          version: '290.0.1'
+          service_account_key: ${{ env.GCLOUD_SERVICE_KEY }}
+          project_id: ${{ env.GOOGLE_PROJECT_ID }}
+          export_default_credentials: true
+      # Configure Docker to use the gcloud command-line tool as a credential
+      # helper for authentication
+      - run: |-
+          gcloud --quiet auth configure-docker
+      # Get the GKE credentials so we can deploy to the cluster
+      - run: |-
+          gcloud container clusters get-credentials "$GKE_CLUSTER" --zone "$GKE_ZONE"
+      # Deploy to GCP
+      - name: Deploy to gcp
+        run: |
+          DOCKER_TAG=$(mvn -f pom.xml org.apache.maven.plugins:maven-help-plugin:3.1.0:evaluate -Dexpression=project.version -q -DforceStdout)-$GITHUB_SHA
+          cat gcp/people-management-deployment.yml | sed "s/@@IMAGE_TAG@@/$DOCKER_TAG/g" | kubectl apply -f -
+          kubectl apply -f gcp/people-management-service.yml
+      - name: Tag update
+        run: |-
+          TAG_CURRENT=${ENVIRONMENT}-current
+          echo "Will delete tag '${TAG_CURRENT}' (wherever it points; if existing) and retag"
+          git push origin :refs/tags/${TAG_CURRENT} || echo "ignore (eventual) errors of previous command (normal on first run)"
+          git tag --delete ${TAG_CURRENT} || echo "ignore (eventual) errors of previous command (normal on first run)"
+          git tag ${TAG_CURRENT}
+          git push origin ${TAG_CURRENT}
+
+          TIMESTAMPED_GIT_TAG="${GITHUB_ACTIONS_TAG}-$(date +'%Y.%m.%d_%H.%M.%S')"
+          echo "Will delete tag '${GITHUB_ACTIONS_TAG}' and retag as $TIMESTAMPED_GIT_TAG"
+
+          git tag --delete ${GITHUB_ACTIONS_TAG}
+          git push origin :refs/tags/${GITHUB_ACTIONS_TAG}
+          git tag $TIMESTAMPED_GIT_TAG
+          git push origin $TIMESTAMPED_GIT_TAG

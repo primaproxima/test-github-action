@@ -2,8 +2,10 @@ name: Deploy to GCP on tag push
 
 on:
   push:
-    tags:    
-      - 'dev-deploy*'
+    tags:
+      - dev-deploy
+      - test-deploy
+      - prod-deploy
 env:
   GOOGLE_PROJECT_ID_DEV: ${{ secrets.GKE_PROJECT }}
   GOOGLE_PROJECT_ID_TEST: ${{ secrets.GKE_TEST_PROJECT }}
@@ -30,13 +32,11 @@ jobs:
           echo "ENVIRONMENT_LOWERCASE=${ENVIRONMENT_LOWERCASE}" >> $GITHUB_ENV
           echo "ENVIRONMENT=${ENVIRONMENT}" >> $GITHUB_ENV
           echo "GITHUB_ACTIONS_TAG=${GITHUB_ACTIONS_TAG}" >> $GITHUB_ENV
-
       - name: Determine the project and service key
         run: |-
           GOOGLE_PROJECT_ID___VAR_NAME=GOOGLE_PROJECT_ID_${ENVIRONMENT}
           GOOGLE_PROJECT_ID=${!GOOGLE_PROJECT_ID___VAR_NAME}
           echo "GOOGLE_PROJECT_ID=${GOOGLE_PROJECT_ID}" >> $GITHUB_ENV
-
           GCLOUD_SERVICE_KEY___VAR_NAME=GCLOUD_SERVICE_KEY_${ENVIRONMENT}
           GCLOUD_SERVICE_KEY=${!GCLOUD_SERVICE_KEY___VAR_NAME}
           if [[ -z "$GCLOUD_SERVICE_KEY" ]]; then
@@ -72,10 +72,8 @@ jobs:
           git tag --delete ${TAG_CURRENT} || echo "ignore (eventual) errors of previous command (normal on first run)"
           git tag ${TAG_CURRENT}
           git push origin ${TAG_CURRENT}
-
           TIMESTAMPED_GIT_TAG="${GITHUB_ACTIONS_TAG}-$(date +'%Y.%m.%d_%H.%M.%S')"
           echo "Will delete tag '${GITHUB_ACTIONS_TAG}' and retag as $TIMESTAMPED_GIT_TAG"
-
           git tag --delete ${GITHUB_ACTIONS_TAG}
           git push origin :refs/tags/${GITHUB_ACTIONS_TAG}
           git tag $TIMESTAMPED_GIT_TAG
